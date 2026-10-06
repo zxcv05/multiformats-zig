@@ -31,7 +31,7 @@ const BenchResult = struct {
     min_time: i128,
     avg_time: i128,
     data_len: u64,
-    pub fn format(self: @This(), writer: anytype) !void {
+    pub fn format(self: @This(), writer: *std.Io.Writer) !void {
         // print formated benchmark result
         try writer.print(
             \\Benchmark {s} Results:
@@ -80,52 +80,58 @@ fn call_decode(codec: multibase.MultiBaseCodec, dest: []u8, data: []const u8) vo
 
 const bench_data_path = "./test/data/bench_data";
 
-pub fn main() !void {
-    const allocator = std.heap.page_allocator;
-    const bench_data = try loadBenchData(allocator, bench_data_path);
-    const config = try parse_args();
-    var bench_res = try run_bench(bench_data, config);
-    try bench_res.format(std.io.getStdOut().writer());
+pub fn main(init: std.process.Init) !void {
+    const io = init.io;
+    const allocator = init.gpa;
+
+    var buffer: [2048]u8 = undefined;
+    const stdout = init.preopens.get("stdout").?.file;
+    var out = stdout.writer(io, &buffer);
+
+    const bench_data = try loadBenchData(io, allocator, bench_data_path);
+    defer allocator.free(bench_data);
+
+    const config = try parse_args(init.minimal.args);
+    var bench_res = try run_bench(io, bench_data, config);
+    try bench_res.format(&out.interface);
+
+    try out.interface.flush();
 }
 
-fn parse_args() !BenchConfig {
+fn parse_args(a: std.process.Args) !BenchConfig {
     var period: u64 = 10;
     var times: u64 = 1_000_000;
     var code: ?multibase.MultiBaseCodec = null;
     var method: []const u8 = "encode";
 
-    var arena_state = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena_state.deinit();
-    const arena = arena_state.allocator();
-    const args = try std.process.argsAlloc(arena);
+    var iter = a.iterate();
+    _ = iter.skip();
 
-    var i: usize = 1;
-    while (i < args.len) : (i += 1) {
-        const arg = args[i];
+    while (iter.next()) |arg| {
         if (std.mem.eql(u8, arg, times_arg_prefix)) {
-            i += 1;
-            const value = args[i];
+            const value = iter.next().?;
             times = try handle_times(value);
         } else if (std.mem.startsWith(u8, arg, times_arg_prefix)) {
             const value = arg[times_arg_prefix.len + 1 ..];
             times = try handle_times(value);
         } else if (std.mem.eql(u8, arg, period_arg)) {
-            i += 1;
-            const value = args[i];
+            const value = iter.next().?;
             period = try handle_period(value);
         } else if (std.mem.startsWith(u8, arg, period_arg)) {
             const value = arg[period_arg.len + 1 ..];
             period = try handle_period(value);
         } else if (std.mem.eql(u8, arg, code_arg)) {
-            i += 1;
-            code = try multibase.MultiBaseCodec.fromCode(args[i]);
+            const value = iter.next().?;
+            code = try multibase.MultiBaseCodec.fromCode(value);
         } else if (std.mem.startsWith(u8, arg, code_arg)) {
-            code = try multibase.MultiBaseCodec.fromCode(arg[code_arg.len + 1 ..]);
+            const value = arg[code_arg.len + 1 ..];
+            code = try multibase.MultiBaseCodec.fromCode(value);
         } else if (std.mem.eql(u8, arg, method_arg)) {
-            i += 1;
-            method = try handle_method(args[i]);
+            const value = iter.next().?;
+            method = try handle_method(value);
         } else if (std.mem.startsWith(u8, arg, method_arg)) {
-            method = try handle_method(arg[method_arg.len + 1 ..]);
+            const value = arg[method_arg.len + 1 ..];
+            method = try handle_method(value);
         }
     }
 
@@ -165,7 +171,9 @@ fn handle_method(value: []const u8) ![]const u8 {
     }
 }
 
-fn run_bench(bench_data: []const u8, config: BenchConfig) !BenchResult {
+fn run_bench(io: std.Io, bench_data: []const u8, config: BenchConfig) !BenchResult {
+    const clock: std.Io.Clock = .real;
+
     var dest_len = config.code.encodedLen(bench_data);
     var action = Func{
         .fn_ptr = call_encode,
@@ -189,19 +197,20 @@ fn run_bench(bench_data: []const u8, config: BenchConfig) !BenchResult {
     var time_records = try std.heap.page_allocator.alloc(i128, config.period);
     defer std.heap.page_allocator.free(time_records);
     while (i < config.period) : (i += 1) {
-        const start_time = std.time.nanoTimestamp();
+        const start = clock.now(io);
         for (0..config.times) |_| {
             action.call(dest, data);
             // _ = config.code.encode(dest, bench_data);
         }
-        const end_time = std.time.nanoTimestamp();
-        const elapsed_time = end_time - start_time;
-        time_records[i] = elapsed_time;
-        if (elapsed_time > max_time) {
-            max_time = elapsed_time;
+        const end = clock.now(io);
+        const elapsed = start.durationTo(end);
+        const elapsed_ns = elapsed.toNanoseconds();
+        time_records[i] = elapsed_ns;
+        if (elapsed_ns > max_time) {
+            max_time = elapsed_ns;
         }
-        if (min_time == 0 or elapsed_time < min_time) {
-            min_time = elapsed_time;
+        if (min_time == 0 or elapsed_ns < min_time) {
+            min_time = elapsed_ns;
         }
     }
 
@@ -222,12 +231,18 @@ fn run_bench(bench_data: []const u8, config: BenchConfig) !BenchResult {
     };
 }
 
-fn loadBenchData(allocator: std.mem.Allocator, filePath: []const u8) ![]const u8 {
-    var file = try std.fs.cwd().openFile(filePath, .{ .mode = std.fs.File.OpenMode.read_only });
-    defer file.close();
-    const fileSize = try file.getEndPos();
-    const buffer = try allocator.alloc(u8, fileSize);
-    _ = try file.readAll(buffer);
-    const content: []const u8 = buffer;
+fn loadBenchData(io: std.Io, allocator: std.mem.Allocator, filePath: []const u8) ![]const u8 {
+    const cwd = std.Io.Dir.cwd();
+
+    var file = try cwd.openFile(io, filePath, .{ .mode = .read_only });
+    defer file.close(io);
+
+    const stat = try file.stat(io);
+    const content = try allocator.alloc(u8, stat.size);
+
+    var buffer: [4096]u8 = undefined;
+    var reader = file.reader(io, &buffer);
+
+    try reader.interface.readSliceAll(content);
     return content;
 }

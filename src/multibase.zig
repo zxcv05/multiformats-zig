@@ -730,7 +730,7 @@ pub const MultiBaseCodec = enum {
         const DecodeTable = [256]u8;
 
         fn createDecodeTable(comptime alphabet: []const u8) DecodeTable {
-            var table: DecodeTable = [_]u8{0xFF} ** 256;
+            var table: DecodeTable = @splat(0xFF);
             for (alphabet, 0..) |c, i| {
                 table[c] = @truncate(i);
                 // Also add lowercase variant for uppercase alphabets
@@ -745,7 +745,7 @@ pub const MultiBaseCodec = enum {
             var idx: usize = 0;
             var out_idx: usize = 0;
             // read 40 bits every loop
-            var carry = [_]u8{0} ** 8;
+            var carry: [8]u8 = @splat(0);
             while (idx + 5 <= source.len) : (idx += 5) {
                 // [0x01, 0x02, 0x03, 0x04, 0x05] => (0x01 << 32) (0x02 << 24) | (0x03 << 16) | (0x04 << 8) | 0x05
                 @memcpy(carry[3..], source[idx..][0..5]);
@@ -1249,7 +1249,7 @@ pub const MultiBaseCodec = enum {
 
         const REVERSE_LOOKUP = blk: {
             @setEvalBranchQuota(10000);
-            var table: [0x10FFFF]u8 = [_]u8{0xFF} ** 0x10FFFF;
+            var table: [0x10FFFF]u8 = @splat(0xff);
             var pos: usize = 0;
             var i: usize = 0;
             while (i < ALPHABET.len) {
@@ -2502,10 +2502,11 @@ test "Base36 and Base58 size calculations" {
 
 test "Base36Lower encode large data" {
     const testing = std.testing;
-    const allocator = std.heap.page_allocator;
-    const large_data = try loadTestData(allocator, "./test/data/encode_data");
+    const allocator = testing.allocator;
+    const io = testing.io;
+    const large_data = try loadTestData(io, allocator, "./test/data/encode_data");
     defer allocator.free(large_data);
-    const encode_comparision_data = try loadTestData(allocator, "./test/data/encoded_result_base36_lower");
+    const encode_comparision_data = try loadTestData(io, allocator, "./test/data/encoded_result_base36_lower");
     defer allocator.free(encode_comparision_data);
 
     var dest: [17000]u8 = undefined;
@@ -2516,10 +2517,11 @@ test "Base36Lower encode large data" {
 
 test "Base36Upper encode large data" {
     const testing = std.testing;
-    const allocator = std.heap.page_allocator;
-    const large_data = try loadTestData(allocator, "./test/data/encode_data");
+    const allocator = testing.allocator;
+    const io = testing.io;
+    const large_data = try loadTestData(io, allocator, "./test/data/encode_data");
     defer allocator.free(large_data);
-    const encode_comparision_data = try loadTestData(allocator, "./test/data/encoded_result_base36_upper");
+    const encode_comparision_data = try loadTestData(io, allocator, "./test/data/encoded_result_base36_upper");
     defer allocator.free(encode_comparision_data);
 
     var dest: [17000]u8 = undefined;
@@ -2530,10 +2532,11 @@ test "Base36Upper encode large data" {
 
 test "Base36Lower decode large data" {
     const testing = std.testing;
-    const allocator = std.heap.page_allocator;
-    const decode_comparision_data = try loadTestData(allocator, "./test/data/encode_data");
+    const allocator = testing.allocator;
+    const io = testing.io;
+    const decode_comparision_data = try loadTestData(io, allocator, "./test/data/encode_data");
     defer allocator.free(decode_comparision_data);
-    const decode_data = try loadTestData(allocator, "./test/data/encoded_result_base36_lower");
+    const decode_data = try loadTestData(io, allocator, "./test/data/encoded_result_base36_lower");
     defer allocator.free(decode_data);
 
     var dest: [17000]u8 = undefined;
@@ -2543,10 +2546,11 @@ test "Base36Lower decode large data" {
 
 test "Base36Upper decode large data" {
     const testing = std.testing;
-    const allocator = std.heap.page_allocator;
-    const decode_comparision_data = try loadTestData(allocator, "./test/data/encode_data");
+    const allocator = testing.allocator;
+    const io = testing.io;
+    const decode_comparision_data = try loadTestData(io, allocator, "./test/data/encode_data");
     defer allocator.free(decode_comparision_data);
-    const decode_data = try loadTestData(allocator, "./test/data/encoded_result_base36_upper");
+    const decode_data = try loadTestData(io, allocator, "./test/data/encoded_result_base36_upper");
     defer allocator.free(decode_data);
 
     var dest: [17500]u8 = undefined;
@@ -2556,10 +2560,11 @@ test "Base36Upper decode large data" {
 
 test "Base58BTC encode large data" {
     const testing = std.testing;
-    const allocator = std.heap.page_allocator;
-    const large_data = try loadTestData(allocator, "./test/data/encode_data");
+    const allocator = testing.allocator;
+    const io = testing.io;
+    const large_data = try loadTestData(io, allocator, "./test/data/encode_data");
     defer allocator.free(large_data);
-    const encode_comparision_data = try loadTestData(allocator, "./test/data/encoded_result_base58_btc");
+    const encode_comparision_data = try loadTestData(io, allocator, "./test/data/encoded_result_base58_btc");
     defer allocator.free(encode_comparision_data);
 
     var dest: [17000]u8 = undefined;
@@ -2570,10 +2575,11 @@ test "Base58BTC encode large data" {
 
 test "Base58BTC decode large data" {
     const testing = std.testing;
-    const allocator = std.heap.page_allocator;
-    const decode_comparision_data = try loadTestData(allocator, "./test/data/encode_data");
+    const allocator = testing.allocator;
+    const io = testing.io;
+    const decode_comparision_data = try loadTestData(io, allocator, "./test/data/encode_data");
     defer allocator.free(decode_comparision_data);
-    const decode_data = try loadTestData(allocator, "./test/data/encoded_result_base58_btc");
+    const decode_data = try loadTestData(io, allocator, "./test/data/encoded_result_base58_btc");
     defer allocator.free(decode_data);
 
     var dest: [17000]u8 = undefined;
@@ -2582,10 +2588,11 @@ test "Base58BTC decode large data" {
 }
 test "Base58Flickr encode large data" {
     const testing = std.testing;
-    const allocator = std.heap.page_allocator;
-    const large_data = try loadTestData(allocator, "./test/data/encode_data");
+    const allocator = testing.allocator;
+    const io = testing.io;
+    const large_data = try loadTestData(io, allocator, "./test/data/encode_data");
     defer allocator.free(large_data);
-    const encode_comparision_data = try loadTestData(allocator, "./test/data/encoded_result_base58_flickr");
+    const encode_comparision_data = try loadTestData(io, allocator, "./test/data/encoded_result_base58_flickr");
     defer allocator.free(encode_comparision_data);
 
     var dest: [17000]u8 = undefined;
@@ -2596,10 +2603,11 @@ test "Base58Flickr encode large data" {
 
 test "Base58Flickr decode large data" {
     const testing = std.testing;
-    const allocator = std.heap.page_allocator;
-    const decode_comparision_data = try loadTestData(allocator, "./test/data/encode_data");
+    const allocator = testing.allocator;
+    const io = testing.io;
+    const decode_comparision_data = try loadTestData(io, allocator, "./test/data/encode_data");
     defer allocator.free(decode_comparision_data);
-    const decode_data = try loadTestData(allocator, "./test/data/encoded_result_base58_flickr");
+    const decode_data = try loadTestData(io, allocator, "./test/data/encoded_result_base58_flickr");
     defer allocator.free(decode_data);
 
     var dest: [17000]u8 = undefined;
@@ -2607,12 +2615,18 @@ test "Base58Flickr decode large data" {
     try testing.expectEqualStrings(decode_comparision_data, decode_result);
 }
 
-fn loadTestData(allocator: std.mem.Allocator, filePath: []const u8) ![]const u8 {
-    var file = try std.fs.cwd().openFile(filePath, .{ .mode = std.fs.File.OpenMode.read_only });
-    defer file.close();
-    const fileSize = try file.getEndPos();
-    const buffer = try allocator.alloc(u8, fileSize);
-    _ = try file.readAll(buffer);
-    const content: []const u8 = buffer;
+fn loadTestData(io: std.Io, allocator: std.mem.Allocator, filePath: []const u8) ![]const u8 {
+    const cwd = std.Io.Dir.cwd();
+
+    var file = try cwd.openFile(io, filePath, .{ .mode = .read_only });
+    defer file.close(io);
+
+    const stat = try file.stat(io);
+    const content = try allocator.alloc(u8, stat.size);
+
+    var buffer: [4096]u8 = undefined;
+    var reader = file.reader(io, &buffer);
+
+    try reader.interface.readSliceAll(content);
     return content;
 }
